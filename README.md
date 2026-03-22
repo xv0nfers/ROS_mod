@@ -1,146 +1,100 @@
-# USV Autonomous Target Interception Stack (ROS 2 Humble)
+# USV Vision & Guidance Stack (ROS 2 Humble)
 
-This repository is the onboard perception-and-guidance bridge for an autonomous Unmanned Surface Vehicle (USV).
-It is tailored for **coastal/marine pursuit and interception** missions with a compute-constrained edge device.
+This project is organized as an onboard software stack for an autonomous USV, with emphasis on **reliability, determinism, and robust control** rather than over-complicated perception pipelines.
 
-## 1) System purpose (USV context)
+## Design principle
 
-The stack provides:
-- Real-time visual detection/tracking integration based on YOLO + ByteTrack.
-- Marine-specific target selection (USV/boat classes) with a lock-on mechanism.
-- Guidance vector output for autopilot/control integration.
-- Debug vision stream for operator validation and field tuning.
+The core challenge is **control action synthesis**, not adding non-deterministic vision complexity.
 
-Mission profile assumptions:
-- High-speed surface intercept scenarios (up to ~60 knots).
-- Targets remain on waterline; sky/top-band false detections should be ignored.
-- Edge inference hardware is limited (NPU class device), so latency-sensitive processing is mandatory.
+- Vision is an input source, not the decision core.
+- Prefer simple, stable, and universal algorithms where possible.
+- OpenCV pipelines are fully valid for embedded operation (including old SBCs without NPU).
+- Neural networks/NPU are optional tools, not architectural requirements.
+- The main engineering effort should be in filtering, telemetry fusion, and anti-oscillation control logic.
 
 ---
 
-## 2) Repository structure
+## 1) Installation on USV onboard computer
 
-- `yolo_ros/` – ROS 2 Python package with YOLO inference/tracking nodes.
-- `yolo_msgs/` – custom message definitions used by the perception stack.
-- `yolo_bringup/` – launch files for model/runtime bring-up.
-- `yolo_ros/yolo_ros/usv_target_selector_node.py` – USV target lock and guidance bridge node.
-
----
-
-## 3) Installation on the USV onboard computer
-
-### 3.1 Prerequisites
+### Prerequisites
 
 - Ubuntu 22.04
 - ROS 2 Humble
 - Python 3.10+
-- Camera driver publishing `sensor_msgs/Image`
-- (Optional but recommended) NPU runtime / vendor toolkit for INT8 model execution
+- OpenCV (system or pip):
+  - `python3-opencv` (recommended on embedded Linux)
+  - or `opencv-python`
 
-### 3.2 Workspace setup
+### Workspace setup
 
 ```bash
 mkdir -p ~/usv_ws/src
 cd ~/usv_ws/src
-git clone <YOUR-REPO-URL> ROS_mod
+git clone <YOUR_REPO_URL> ROS_mod
 cd ROS_mod
+
+# Python deps
 pip3 install -r requirements.txt
+
+# System OpenCV (recommended)
+sudo apt-get update
+sudo apt-get install -y python3-opencv
+
+# ROS deps + build
 cd ~/usv_ws
 rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install
 source ~/usv_ws/install/setup.bash
 ```
 
-### 3.3 Runtime environment (recommended on USV)
+Optional persistent setup:
 
 ```bash
-# Add ROS setup to shell profile for persistent sessions
 echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 echo "source ~/usv_ws/install/setup.bash" >> ~/.bashrc
 ```
 
 ---
 
-## 4) How to run on the USV
+## 2) Running on USV
 
-### 4.1 Start perception (YOLO + tracking)
-
-Use the launch file matching your deployed model/runtime.
+### Start perception stack
 
 ```bash
-ros2 launch yolo_bringup yolov8.launch.py
+ros2 launch yolo_bringup yolo.launch.py
 ```
 
-If using generic launch with custom parameters:
+### (Optional) Start OpenCV-only feature pipeline
+
+If mission profile prioritizes deterministic low-compute processing, run the OpenCV tracker node:
 
 ```bash
-ros2 launch yolo_bringup yolo.launch.py \
-  model:=<PATH_OR_NAME_TO_MODEL> \
-  device:=cpu \
-  use_tracking:=True \
-  use_debug:=True
+ros2 run yolo_ros usv_opencv_tracker_node
 ```
 
-> For NPU deployments, set model/runtime options according to your vendor export/runtime path.
+This node tracks feature motion in the lower water ROI and publishes a lightweight guidance vector to `/usv/target_vector`.
 
-### 4.2 Start USV target selector bridge
+### Topics to connect into control stack
 
-```bash
-ros2 run yolo_ros usv_target_selector_node
-```
-
-### 4.3 Key I/O topics for integration
-
-Inputs:
-- `/camera/image_raw` (`sensor_msgs/Image`)
-- `/tracking` (`vision_msgs/Detection2DArray`) – tracked detections with IDs
-
-Outputs:
-- `/usv/target_vector` (`geometry_msgs/Twist`)
-  - `linear.x`: normalized azimuth error `[-1..1]`
-  - `linear.y`: distance-like heuristic
-  - `linear.z`: lock flag (`1.0` locked / `0.0` unlocked)
-- `/usv/vision_debug` (`sensor_msgs/Image`) – annotated frame
-
-### 4.4 Typical tuning parameters (field trials)
-
-`usv_target_selector_node` parameters:
-- `roi_top_ratio` (default `0.30`) – ignores detections in top frame band.
-- `priority_class_ids` (default `[0,1]`) – target classes for lock-on.
-- `min_stable_hits` (default `3`) – minimum consistent ID observations before lock.
-- `max_lock_misses` (default `5`) – tolerated temporary target loss.
-- `max_detection_age_sec` (default `0.25`) – reject stale detections.
-
-Example run with overrides:
-
-```bash
-ros2 run yolo_ros usv_target_selector_node --ros-args \
-  -p roi_top_ratio:=0.30 \
-  -p priority_class_ids:="[0,1]" \
-  -p min_stable_hits:=4 \
-  -p max_lock_misses:=6
-```
+- Camera input: `/camera/image_raw`
+- Tracking/detections: `/tracking` (or your OpenCV tracker topic)
+- Guidance output (if using selector node): `/usv/target_vector`
+- Debug view: `/usv/vision_debug`
 
 ---
 
-## 5) Training workflow for USV targets
+## 3) Training workflow (if using neural models)
 
-The model training itself is done in Ultralytics (offline workstation/server), then deployed to the USV edge device.
+> NN training is optional and should not replace control-model quality.
 
-### 5.1 Dataset recommendations
+### Dataset guidance for marine operations
 
-Collect and label marine-domain data with emphasis on:
-- USV hulls from chase and crossing angles.
-- Small boats / canoes in cluttered backgrounds.
-- Foam, glare, wake, haze, low sun, rain, sea-state variation.
-- Long-range tiny targets and near-field large targets.
+Prioritize:
+- USV/boat/canoe classes
+- Sea clutter, glare, wake, haze, rain, dusk
+- Long range + near range balance
 
-Suggested classes for interception use:
-- `0: usv`
-- `1: boat`
-- Additional classes as needed (`jetski`, `kayak`, etc.).
-
-### 5.2 Baseline training command (example)
+### Example training
 
 ```bash
 yolo detect train \
@@ -152,45 +106,46 @@ yolo detect train \
   device=0
 ```
 
-### 5.3 Export for edge/NPU
+### Export for edge
 
 ```bash
-# ONNX export (example)
 yolo export model=best.pt format=onnx imgsz=640
 ```
 
-Then convert/calibrate to your NPU runtime (INT8) with vendor tools.
-
-### 5.4 Deployment checklist
-
-- Verify class ID mapping matches `priority_class_ids` in ROS.
-- Validate FPS on target hardware at mission camera rate (target 30 FPS).
-- Confirm tracked output includes stable IDs used by lock logic.
-- Run sea trials and tune lock/filter parameters conservatively before aggressive interception behavior.
+Then convert/calibrate to target runtime (INT8, vendor-specific if NPU is used).
 
 ---
 
-## 6) Operational notes (safety + reliability)
+## 4) USV control integration notes (important)
 
-- Always perform controlled test runs before open-water missions.
-- Keep a manual override channel active in autopilot/control stack.
-- Record bags (`ros2 bag`) during trials for post-mission tuning.
-- Re-validate after camera/lens, model, or firmware updates.
+To avoid drift and oscillation:
+- Use bounded control outputs and rate limits.
+- Add filtering with explicit latency budgeting.
+- Fuse visual observations with telemetry (IMU/GNSS/heading/speed).
+- Apply anti-windup and gain scheduling for high-speed regimes.
+- Keep fallback degraded mode when perception confidence drops.
 
 ---
 
-## 7) Quick start (minimal commands)
+## 5) OpenCV and ROS references
+
+- OpenCV: https://opencv.org/
+- ROS wiki `vision_opencv`: https://wiki.ros.org/vision_opencv
+- `vision_opencv` repository: https://github.com/ros-perception/vision_opencv
+- ROS2 OpenCV detection example: https://github.com/luciapferreira/ros2-opencv-object-detection
+
+---
+
+## 6) Quick start
 
 ```bash
 # Terminal 1
 source /opt/ros/humble/setup.bash
 source ~/usv_ws/install/setup.bash
-ros2 launch yolo_bringup yolov8.launch.py
+ros2 launch yolo_bringup yolo.launch.py
 
 # Terminal 2
 source /opt/ros/humble/setup.bash
 source ~/usv_ws/install/setup.bash
-ros2 run yolo_ros usv_target_selector_node
+ros2 run yolo_ros usv_opencv_tracker_node
 ```
-
-This gives you a running USV perception-to-guidance bridge ready to connect to navigation/control logic.

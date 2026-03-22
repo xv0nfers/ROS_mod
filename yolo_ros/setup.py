@@ -23,7 +23,7 @@ setup(
             "debug_node = yolo_ros.debug_node:main",
             "tracking_node = yolo_ros.tracking_node:main",
             "detect_3d_node = yolo_ros.detect_3d_node:main",
-            "usv_target_selector_node = yolo_ros.usv_target_selector_node:main",
+            "usv_opencv_tracker_node = yolo_ros.usv_opencv_tracker_node:main",
         ],
     },
 )
