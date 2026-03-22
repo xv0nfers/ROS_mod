@@ -1,245 +1,196 @@
-# yolo_ros
+# USV Autonomous Target Interception Stack (ROS 2 Humble)
 
-ROS 2 wrap for YOLO models from [Ultralytics](https://github.com/ultralytics/ultralytics) to perform object detection and tracking, instance segmentation, human pose estimation and Oriented Bounding Box (OBB). There are also 3D versions of object detection, including instance segmentation, and human pose estimation based on depth images.
+This repository is the onboard perception-and-guidance bridge for an autonomous Unmanned Surface Vehicle (USV).
+It is tailored for **coastal/marine pursuit and interception** missions with a compute-constrained edge device.
 
-<div align="center">
+## 1) System purpose (USV context)
 
-[![License: GPL](https://img.shields.io/badge/GitHub-GPL--3.0-informational)](https://opensource.org/license/gpl-3-0) [![GitHub release](https://img.shields.io/github/release/mgonzs13/yolo_ros.svg)](https://github.com/mgonzs13/yolo_ros/releases) [![Code Size](https://img.shields.io/github/languages/code-size/mgonzs13/yolo_ros.svg?branch=main)](https://github.com/mgonzs13/yolo_ros?branch=main) [![Dependencies](https://img.shields.io/librariesio/github/mgonzs13/yolo_ros?branch=main)](https://libraries.io/github/mgonzs13/yolo_ros?branch=main) [![Last Commit](https://img.shields.io/github/last-commit/mgonzs13/yolo_ros.svg)](https://github.com/mgonzs13/yolo_ros/commits/main) [![GitHub issues](https://img.shields.io/github/issues/mgonzs13/yolo_ros)](https://github.com/mgonzs13/yolo_ros/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/mgonzs13/yolo_ros)](https://github.com/mgonzs13/yolo_ros/pulls) [![Contributors](https://img.shields.io/github/contributors/mgonzs13/yolo_ros.svg)](https://github.com/mgonzs13/yolo_ros/graphs/contributors) [![Python Formatter Check](https://github.com/mgonzs13/yolo_ros/actions/workflows/python-formatter.yml/badge.svg?branch=main)](https://github.com/mgonzs13/yolo_ros/actions/workflows/python-formatter.yml?branch=main) [![Doxygen Deployment](https://github.com/mgonzs13/yolo_ros/actions/workflows/doxygen-deployment.yml/badge.svg)](https://mgonzs13.github.io/yolo_ros/latest)
+The stack provides:
+- Real-time visual detection/tracking integration based on YOLO + ByteTrack.
+- Marine-specific target selection (USV/boat classes) with a lock-on mechanism.
+- Guidance vector output for autopilot/control integration.
+- Debug vision stream for operator validation and field tuning.
 
-| ROS 2 Distro |                          Branch                          |                                                                                                      Build status                                                                                                      |                                                               Docker Image                                                                |
-| :----------: | :------------------------------------------------------: | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------------------------------------: |
-|  **Humble**  | [`main`](https://github.com/mgonzs13/yolo_ros/tree/main) |  [![Humble Build](https://github.com/mgonzs13/yolo_ros/actions/workflows/humble-docker-build.yml/badge.svg?branch=main)](https://github.com/mgonzs13/yolo_ros/actions/workflows/humble-docker-build.yml?branch=main)   |  [![Docker Image](https://img.shields.io/badge/Docker%20Image%20-humble-blue)](https://hub.docker.com/r/mgons/yolo_ros/tags?name=humble)  |
-|   **Iron**   | [`main`](https://github.com/mgonzs13/yolo_ros/tree/main) |     [![Iron Build](https://github.com/mgonzs13/yolo_ros/actions/workflows/iron-docker-build.yml/badge.svg?branch=main)](https://github.com/mgonzs13/yolo_ros/actions/workflows/iron-docker-build.yml?branch=main)      |    [![Docker Image](https://img.shields.io/badge/Docker%20Image%20-iron-blue)](https://hub.docker.com/r/mgons/yolo_ros/tags?name=iron)    |
-|  **Jazzy**   | [`main`](https://github.com/mgonzs13/yolo_ros/tree/main) |    [![Jazzy Build](https://github.com/mgonzs13/yolo_ros/actions/workflows/jazzy-docker-build.yml/badge.svg?branch=main)](https://github.com/mgonzs13/yolo_ros/actions/workflows/jazzy-docker-build.yml?branch=main)    |   [![Docker Image](https://img.shields.io/badge/Docker%20Image%20-jazzy-blue)](https://hub.docker.com/r/mgons/yolo_ros/tags?name=jazzy)   |
-|  **Kilted**  | [`main`](https://github.com/mgonzs13/yolo_ros/tree/main) |  [![Kilted Build](https://github.com/mgonzs13/yolo_ros/actions/workflows/kilted-docker-build.yml/badge.svg?branch=main)](https://github.com/mgonzs13/yolo_ros/actions/workflows/kilted-docker-build.yml?branch=main)   |  [![Docker Image](https://img.shields.io/badge/Docker%20Image%20-kilted-blue)](https://hub.docker.com/r/mgons/yolo_ros/tags?name=kilted)  |
-| **Rolling**  | [`main`](https://github.com/mgonzs13/yolo_ros/tree/main) | [![Rolling Build](https://github.com/mgonzs13/yolo_ros/actions/workflows/rolling-docker-build.yml/badge.svg?branch=main)](https://github.com/mgonzs13/yolo_ros/actions/workflows/rolling-docker-build.yml?branch=main) | [![Docker Image](https://img.shields.io/badge/Docker%20Image%20-rolling-blue)](https://hub.docker.com/r/mgons/yolo_ros/tags?name=rolling) |
+Mission profile assumptions:
+- High-speed surface intercept scenarios (up to ~60 knots).
+- Targets remain on waterline; sky/top-band false detections should be ignored.
+- Edge inference hardware is limited (NPU class device), so latency-sensitive processing is mandatory.
 
-</div>
+---
 
-## Table of Contents
+## 2) Repository structure
 
-1. [Installation](#installation)
-2. [Docker](#docker)
-3. [Models](#models)
-4. [Usage](#usage)
-5. [Lifecycle Nodes](#lifecycle-nodes)
-6. [Demos](#demos)
+- `yolo_ros/` – ROS 2 Python package with YOLO inference/tracking nodes.
+- `yolo_msgs/` – custom message definitions used by the perception stack.
+- `yolo_bringup/` – launch files for model/runtime bring-up.
+- `yolo_ros/yolo_ros/usv_target_selector_node.py` – USV target lock and guidance bridge node.
 
-## Installation
+---
 
-```shell
-cd ~/ros2_ws/src
-git clone https://github.com/mgonzs13/yolo_ros.git
-pip3 install -r yolo_ros/requirements.txt
-cd ~/ros2_ws
+## 3) Installation on the USV onboard computer
+
+### 3.1 Prerequisites
+
+- Ubuntu 22.04
+- ROS 2 Humble
+- Python 3.10+
+- Camera driver publishing `sensor_msgs/Image`
+- (Optional but recommended) NPU runtime / vendor toolkit for INT8 model execution
+
+### 3.2 Workspace setup
+
+```bash
+mkdir -p ~/usv_ws/src
+cd ~/usv_ws/src
+git clone <YOUR-REPO-URL> ROS_mod
+cd ROS_mod
+pip3 install -r requirements.txt
+cd ~/usv_ws
 rosdep install --from-paths src --ignore-src -r -y
-colcon build
-source ~/ros2_ws/install/setup.bash"
+colcon build --symlink-install
+source ~/usv_ws/install/setup.bash
 ```
 
-## Docker
+### 3.3 Runtime environment (recommended on USV)
 
-Build the yolo_ros docker.
-
-```shell
-docker build -t yolo_ros .
+```bash
+# Add ROS setup to shell profile for persistent sessions
+echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+echo "source ~/usv_ws/install/setup.bash" >> ~/.bashrc
 ```
 
-Run the docker container. If you want to use CUDA, you have to install the [NVIDIA Container Tollkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) and add `--gpus all`.
+---
 
-```shell
-docker run -it --rm --gpus all yolo_ros
-```
+## 4) How to run on the USV
 
-## Models
+### 4.1 Start perception (YOLO + tracking)
 
-The compatible models for yolo_ros are the following:
+Use the launch file matching your deployed model/runtime.
 
-- [YOLOv3](https://docs.ultralytics.com/models/yolov3/)
-- [YOLOv4](https://docs.ultralytics.com/models/yolov4/)
-- [YOLOv5](https://docs.ultralytics.com/models/yolov5/)
-- [YOLOv6](https://docs.ultralytics.com/models/yolov6/)
-- [YOLOv7](https://docs.ultralytics.com/models/yolov7/)
-- [YOLOv8](https://docs.ultralytics.com/models/yolov8/)
-- [YOLOv9](https://docs.ultralytics.com/models/yolov9/)
-- [YOLOv10](https://docs.ultralytics.com/models/yolov10/)
-- [YOLOv11](https://docs.ultralytics.com/models/yolo11/)
-- [YOLOv12](https://docs.ultralytics.com/models/yolo12/)
-- [YOLO-World](https://docs.ultralytics.com/models/yolo-world/)
-- [YOLOE](https://docs.ultralytics.com/models/yoloe/)
-
-## Usage
-
-<details>
-<summary>Click to expand</summary>
-
-### YOLOv5
-
-```shell
-ros2 launch yolo_bringup yolov5.launch.py
-```
-
-### YOLOv8
-
-```shell
+```bash
 ros2 launch yolo_bringup yolov8.launch.py
 ```
 
-### YOLOv9
+If using generic launch with custom parameters:
 
-```shell
-ros2 launch yolo_bringup yolov9.launch.py
+```bash
+ros2 launch yolo_bringup yolo.launch.py \
+  model:=<PATH_OR_NAME_TO_MODEL> \
+  device:=cpu \
+  use_tracking:=True \
+  use_debug:=True
 ```
 
-### YOLOv10
+> For NPU deployments, set model/runtime options according to your vendor export/runtime path.
 
-```shell
-ros2 launch yolo_bringup yolov10.launch.py
+### 4.2 Start USV target selector bridge
+
+```bash
+ros2 run yolo_ros usv_target_selector_node
 ```
 
-### YOLOv11
+### 4.3 Key I/O topics for integration
 
-```shell
-ros2 launch yolo_bringup yolov11.launch.py
+Inputs:
+- `/camera/image_raw` (`sensor_msgs/Image`)
+- `/tracking` (`vision_msgs/Detection2DArray`) – tracked detections with IDs
+
+Outputs:
+- `/usv/target_vector` (`geometry_msgs/Twist`)
+  - `linear.x`: normalized azimuth error `[-1..1]`
+  - `linear.y`: distance-like heuristic
+  - `linear.z`: lock flag (`1.0` locked / `0.0` unlocked)
+- `/usv/vision_debug` (`sensor_msgs/Image`) – annotated frame
+
+### 4.4 Typical tuning parameters (field trials)
+
+`usv_target_selector_node` parameters:
+- `roi_top_ratio` (default `0.30`) – ignores detections in top frame band.
+- `priority_class_ids` (default `[0,1]`) – target classes for lock-on.
+- `min_stable_hits` (default `3`) – minimum consistent ID observations before lock.
+- `max_lock_misses` (default `5`) – tolerated temporary target loss.
+- `max_detection_age_sec` (default `0.25`) – reject stale detections.
+
+Example run with overrides:
+
+```bash
+ros2 run yolo_ros usv_target_selector_node --ros-args \
+  -p roi_top_ratio:=0.30 \
+  -p priority_class_ids:="[0,1]" \
+  -p min_stable_hits:=4 \
+  -p max_lock_misses:=6
 ```
 
-### YOLOv12
+---
 
-```shell
-ros2 launch yolo_bringup yolov12.launch.py
+## 5) Training workflow for USV targets
+
+The model training itself is done in Ultralytics (offline workstation/server), then deployed to the USV edge device.
+
+### 5.1 Dataset recommendations
+
+Collect and label marine-domain data with emphasis on:
+- USV hulls from chase and crossing angles.
+- Small boats / canoes in cluttered backgrounds.
+- Foam, glare, wake, haze, low sun, rain, sea-state variation.
+- Long-range tiny targets and near-field large targets.
+
+Suggested classes for interception use:
+- `0: usv`
+- `1: boat`
+- Additional classes as needed (`jetski`, `kayak`, etc.).
+
+### 5.2 Baseline training command (example)
+
+```bash
+yolo detect train \
+  model=yolov8n.pt \
+  data=usv_dataset.yaml \
+  imgsz=640 \
+  epochs=100 \
+  batch=32 \
+  device=0
 ```
 
-### YOLO-World
+### 5.3 Export for edge/NPU
 
-```shell
-ros2 launch yolo_bringup yolo-world.launch.py
+```bash
+# ONNX export (example)
+yolo export model=best.pt format=onnx imgsz=640
 ```
 
-### YOLOE
+Then convert/calibrate to your NPU runtime (INT8) with vendor tools.
 
-```shell
-ros2 launch yolo_bringup yoloe.launch.py
+### 5.4 Deployment checklist
+
+- Verify class ID mapping matches `priority_class_ids` in ROS.
+- Validate FPS on target hardware at mission camera rate (target 30 FPS).
+- Confirm tracked output includes stable IDs used by lock logic.
+- Run sea trials and tune lock/filter parameters conservatively before aggressive interception behavior.
+
+---
+
+## 6) Operational notes (safety + reliability)
+
+- Always perform controlled test runs before open-water missions.
+- Keep a manual override channel active in autopilot/control stack.
+- Record bags (`ros2 bag`) during trials for post-mission tuning.
+- Re-validate after camera/lens, model, or firmware updates.
+
+---
+
+## 7) Quick start (minimal commands)
+
+```bash
+# Terminal 1
+source /opt/ros/humble/setup.bash
+source ~/usv_ws/install/setup.bash
+ros2 launch yolo_bringup yolov8.launch.py
+
+# Terminal 2
+source /opt/ros/humble/setup.bash
+source ~/usv_ws/install/setup.bash
+ros2 run yolo_ros usv_target_selector_node
 ```
 
-</details>
-
-<p align="center">
-  <img src="./docs/rqt_graph_yolov8.png" width="100%" />
-</p>
-
-### Topics
-
-- **/yolo/detections**: Objects detected by YOLO using the RGB images. Each object contains a bounding box and a class name. It may also include a mark or a list of keypoints.
-- **/yolo/tracking**: Objects detected and tracked from YOLO results. Each object is assigned a tracking ID.
-- **/yolo/detections_3d**: 3D objects detected. YOLO results are used to crop the depth images to create the 3D bounding boxes and 3D keypoints.
-- **/yolo/debug_image**: Debug images showing the detected and tracked objects. They can be visualized with rviz2.
-
-### Parameters
-
-These are the parameters from the [yolo.launch.py](./yolo_bringup/launch/yolo.launch.py), used to launch all models. Check out the [Ultralytics page](https://docs.ultralytics.com/modes/predict/#inference-arguments) for more details.
-
-- **model_type**: Ultralytics model type (default: YOLO)
-- **model**: YOLO model (default: yolov8m.pt)
-- **tracker**: Tracker file (default: bytetrack.yaml)
-- **device**: GPU/CUDA (default: cuda:0)
-- **fuse_model**: Whether to fuse the YOLO model for inference optimization (default: False)
-- **yolo_encoding**: Encoding to convert input image before using YOLO (default: bgr8)
-- **enable**: Whether to start YOLO enabled (default: True)
-- **threshold**: Detection threshold (default: 0.5)
-- **iou**: Intersection Over Union (IoU) threshold for Non-Maximum Suppression (NMS) (default: 0.7)
-- **imgsz_height**: Image height for inference (default: 480)
-- **imgsz_width**: Image width for inference (default: 640)
-- **half**: Whether to enable half-precision (FP16) inference speeding up model inference with minimal impact on accuracy (default: False)
-- **max_det**: Maximum number of detections allowed per image (default: 300)
-- **augment**: Whether to enable test-time augmentation (TTA) for predictions improving detection robustness at the cost of speed (default: False)
-- **agnostic_nms**: Whether to enable class-agnostic Non-Maximum Suppression (NMS) merging overlapping boxes of different classes (default: False)
-- **retina_masks**: Whether to use high-resolution segmentation masks if available in the model, enhancing mask quality for segmentation (default: False)
-- **input_image_topic**: Camera topic of RGB images (default: /camera/rgb/image_raw)
-- **image_reliability**: Reliability for the image topic: 0=system default, 1=Reliable, 2=Best Effort (default: 1)
-- **input_depth_topic**: Camera topic of depth images (default: /camera/depth/image_raw)
-- **depth_image_reliability**: Reliability for the depth image topic: 0=system default, 1=Reliable, 2=Best Effort (default: 1)
-- **input_depth_info_topic**: Camera topic for info data (default: /camera/depth/camera_info)
-- **depth_info_reliability**: Reliability for the depth info topic: 0=system default, 1=Reliable, 2=Best Effort (default: 1)
-- **target_frame**: frame to transform the 3D boxes (default: base_link)
-- **depth_image_units_divisor**: Divisor to convert the depth image into meters. Depends on the camera you are using (default: 1000)
-- **use_tracking**: Whether to activate tracking after detection (default: True)
-- **use_3d**: Whether to activate 3D detections (default: False)
-- **use_debug**: Whether to activate debug node (default: True)
-
-## Lifecycle Nodes
-
-Previous updates add Lifecycle Nodes support to all the nodes available in the package.
-This implementation tries to reduce the workload in the unconfigured and inactive states by only loading the models and activating the subscriber on the active state.
-
-These are some resource comparisons using the default yolov8m.pt model on a 30fps video stream.
-
-| State    | CPU Usage (i7 12th Gen) | VRAM Usage | Bandwidth Usage |
-| -------- | ----------------------- | ---------- | --------------- |
-| Active   | 40-50% in one core      | 628 MB     | Up to 200 Mbps  |
-| Inactive | ~5-7% in one core       | 338 MB     | 0-20 Kbps       |
-
-<p align="center">
-  <img src="./docs/rqt_graph_yolov8_3d.png" width="100%" />
-</p>
-
-## Demos
-
-## Object Detection
-
-This is the standard behavior of yolo_ros which includes object tracking.
-
-```shell
-ros2 launch yolo_bringup yolo.launch.py
-```
-
-[![](https://drive.google.com/thumbnail?authuser=0&sz=w1280&id=1gTQt6soSIq1g2QmK7locHDiZ-8MqVl2w)](https://drive.google.com/file/d/1gTQt6soSIq1g2QmK7locHDiZ-8MqVl2w/view?usp=sharing)
-
-## Instance Segmentation
-
-Instance masks are the borders of the detected objects, not all the pixels inside the masks.
-
-```shell
-ros2 launch yolo_bringup yolo.launch.py model:=yolov8m-seg.pt
-```
-
-[![](https://drive.google.com/thumbnail?authuser=0&sz=w1280&id=1dwArjDLSNkuOGIB0nSzZR6ABIOCJhAFq)](https://drive.google.com/file/d/1dwArjDLSNkuOGIB0nSzZR6ABIOCJhAFq/view?usp=sharing)
-
-## Human Pose
-
-Visible persons are detected along with their skeleton keypoints.
-
-```shell
-ros2 launch yolo_bringup yolo.launch.py model:=yolov8m-pose.pt
-```
-
-[![](https://drive.google.com/thumbnail?authuser=0&sz=w1280&id=1pRy9lLSXiFEVFpcbesMCzmTMEoUXGWgr)](https://drive.google.com/file/d/1pRy9lLSXiFEVFpcbesMCzmTMEoUXGWgr/view?usp=sharing)
-
-## 3D Object Detection
-
-The 3D bounding boxes are calculated by filtering the depth image data from an RGB-D camera using the 2D bounding box. Only objects with a 3D bounding box are visualized in the 2D image.
-
-```shell
-ros2 launch yolo_bringup yolo.launch.py use_3d:=True
-```
-
-[![](https://drive.google.com/thumbnail?authuser=0&sz=w1280&id=1ZcN_u9RB9_JKq37mdtpzXx3b44tlU-pr)](https://drive.google.com/file/d/1ZcN_u9RB9_JKq37mdtpzXx3b44tlU-pr/view?usp=sharing)
-
-## 3D Object Detection (Using Instance Segmentation Masks)
-
-In this, the depth image data is filtered using the max and min values obtained from the instance masks. Only objects with a 3D bounding box are visualized in the 2D image.
-
-```shell
-ros2 launch yolo_bringup yolo.launch.py model:=yolov8m-seg.pt use_3d:=True
-```
-
-[![](https://drive.google.com/thumbnail?authuser=0&sz=w1280&id=1wVZgi5GLkAYxv3GmTxX5z-vB8RQdwqLP)](https://drive.google.com/file/d/1wVZgi5GLkAYxv3GmTxX5z-vB8RQdwqLP/view?usp=sharing)
-
-## 3D Human Pose
-
-Each keypoint is projected in the depth image and visualized using purple spheres. Only objects with a 3D bounding box are visualized in the 2D image.
-
-```shell
-ros2 launch yolo_bringup yolo.launch.py model:=yolov8m-pose.pt use_3d:=True
-```
-
-[![](https://drive.google.com/thumbnail?authuser=0&sz=w1280&id=1j4VjCAsOCx_mtM2KFPOLkpJogM0t227r)](https://drive.google.com/file/d/1j4VjCAsOCx_mtM2KFPOLkpJogM0t227r/view?usp=sharing)
+This gives you a running USV perception-to-guidance bridge ready to connect to navigation/control logic.
