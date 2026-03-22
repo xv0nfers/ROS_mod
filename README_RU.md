@@ -33,7 +33,7 @@
 - Драйвер камеры, публикующий `sensor_msgs/Image`
 - (Опционально) NPU runtime/SDK производителя для INT8
 
-### 3.2 Подготовка workspace
+### 3.2 Подготовка рабочего пространсва
 
 ```bash
 mkdir -p ~/usv_ws/src
@@ -58,7 +58,7 @@ echo "source ~/usv_ws/install/setup.bash" >> ~/.bashrc
 
 ## 4) Запуск на БЭК
 
-### 4.1 Запуск перцепции (YOLO + tracking)
+### 4.1 Запуск перцепции (YOLO + трэкинг)
 
 ```bash
 ros2 launch yolo_bringup yolov8.launch.py
